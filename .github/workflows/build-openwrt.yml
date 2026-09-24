@@ -1,1 +1,205 @@
+name: Build OpenWrt x86 Firmware
 
+# 说明：GitHub 对 workflow_dispatch 的输入项上限是 10 个，所以这里只保留最常用的 8 个参数，
+# 其余（目标机型、boot 分区、Docker/LXC/iStore 开关、镜像选项、额外软件包……）
+# 统一通过 extra_flags 这个自由文本输入传给 builder/build.sh，详见 README。
+
+on:
+  workflow_dispatch:
+    inputs:
+      openwrt_version:
+        description: OpenWrt 版本（25.12 为滚动预览版，稳定性不如 24.10）
+        required: true
+        default: '24.10'
+        type: choice
+        options: ['24.10','25.12']
+      rootfs_type:
+        description: 固件包格式(rootfs)
+        required: true
+        default: 'squashfs'
+        type: choice
+        options: ['squashfs', 'ext4', 'both']
+      rootfs_size:
+        description: rootfs 分区大小(MiB)
+        required: true
+        default: '8192'
+        type: choice
+        options: ['256', '512', '1024', '2048', '4096', '8192']
+      mode:
+        description: 网络模式
+        required: true
+        default: 'bypass'
+        type: choice
+        options: ['router', 'bypass']
+      lan_ip:
+        description: 默认管理 IP(LAN)
+        required: true
+        default: '192.168.3.201'
+      upstream_gateway:
+        description: 上级网关；旁路由模式下必须填主路由 IP
+        required: false
+        default: '192.168.3.1'
+      dns_servers:
+        description: DNS 服务器(逗号分隔，留空=继承上级)
+        required: true
+        default: '192.168.3.1'
+      root_password:
+        description: root 开机密码(留空=OpenWrt 默认空密码)
+        required: false
+        default: 'password'
+      extra_flags:
+        description: >-
+          附加开关(可选)，原样传给 builder/build.sh。例：
+          "--target legacy --kernel-part 64 --hostname MyRouter --no-istore --vm-images
+          --extra-packages luci-theme-argon"。参数不全处事见 README
+        required: false
+        default: ''
+      publish_release:
+        description: 构建完成后自动发布到 Release
+        required: false
+        default: true
+        type: boolean
+
+# 定时构建按需放开：每周一 03:00 UTC
+# schedule:
+#   - cron: '0 3 * * 1'
+
+env:
+  TZ: Asia/Shanghai
+  # GitHub 托管 runner 是非 root 用户(uid 1001)，此项不影响其行为；
+  # 若你在"以 root 运行的自托管 runner"上跑，autotools 会拒绝 root 配置，需要它。
+  FORCE_UNSAFE_CONFIGURE: 1
+
+jobs:
+  build:
+    name: OpenWrt ${{ inputs.openwrt_version }} / ${{ inputs.rootfs_type }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355          # 免费 runner 单 job 上限 6h
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout 仓库
+        uses: actions/checkout@v7
+
+      - name: 释放 runner 磁盘空间
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache \
+                      /usr/share/swift /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          sudo apt-get remove -y '^dotnet-.*' azure-cli google-chrome-stable firefox powershell || true
+          sudo apt-get autoremove --purge -y || true
+          sudo rm -rf /var/cache/apt/archives /tmp/download 2>/dev/null || true
+          echo "清理后剩余空间："
+          df -h
+
+      - name: 安装编译依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext \
+            git gperf libgmp-dev g++ libltdl-dev libmpc-dev libmpfr-dev libncurses-dev \
+            libssl-dev libtool libz-dev lrzsz mtd-utils ninja-build patch pkg-config \
+            python3 python3-pip python3-setuptools qemu-utils rsync schedtool subversion \
+            swig time u-boot-tools unzip upx-ucl uuid-dev wget zlib1g-dev
+          echo "=== 依赖就绪 ==="
+          gcc --version | head -1
+
+      - name: 恢复 ccache 缓存
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-openwrt-${{ inputs.openwrt_version }}-${{ hashFiles('config/*.pkgs', 'config/kernel/*.opts') }}
+          restore-keys: |
+            ccache-openwrt-${{ inputs.openwrt_version }}-
+
+      - name: 恢复 dl(源码包) 缓存
+        uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: ${{ github.workspace }}/dl
+          key: dl-openwrt-${{ inputs.openwrt_version }}-${{ github.sha }}
+          restore-keys: |
+            dl-openwrt-${{ inputs.openwrt_version }}-
+
+      - name: 配置 ccache
+        run: |
+          export CCACHE_DIR="${{ github.workspace }}/../.ccache"
+          mkdir -p "$CCACHE_DIR"
+          ccache -M 5G
+          ccache -z
+          echo "CCACHE_DIR=$CCACHE_DIR" >> "$GITHUB_ENV"
+          # ccache 默认关闭（它自身构建需联网拉 CMake FetchContent 依赖）。
+          # 仅在 extra_flags 里显式写了 --ccache 时才真正启用。
+          case " ${{ inputs.extra_flags }} " in
+            *" --ccache "*) echo "USE_CCACHE=true"  >> "$GITHUB_ENV" ;;
+            *)              echo "USE_CCACHE=false" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: 显示构建参数
+        run: |
+          {
+            echo "版本         : ${{ inputs.openwrt_version }}"
+            echo "rootfs 格式  : ${{ inputs.rootfs_type }}"
+            echo "rootfs 大小  : ${{ inputs.rootfs_size }} MiB"
+            echo "IP / 掩码    : ${{ inputs.lan_ip }} / 255.255.255.0"
+            echo "模式 / 网关  : ${{ inputs.mode }} / ${{ inputs.upstream_gateway }}"
+            echo "DNS          : ${{ inputs.dns_servers }}"
+            echo "附加开关     : ${{ inputs.extra_flags }}"
+          } | tee "$RUNNER_TEMP/build-params.txt"
+
+      - name: 编译固件
+        run: |
+          set -euo pipefail
+          ONLY_FLAGS='${{ inputs.extra_flags }}'
+          # 只做空白分词，不做 shell 求值，避免把输入当命令执行
+          read -r -a EXTRA <<< "$ONLY_FLAGS"
+          for tok in "${EXTRA[@]}"; do
+            printf '%s\n' "$tok" | grep -Eq '^[-a-zA-Z0-9_.:/@=,+]+$' \
+              || { echo "::error::extra_flags 含非法字符: $tok"; exit 1; }
+          done
+
+          args=(
+            --version "${{ inputs.openwrt_version }}"
+            --rootfs-type "${{ inputs.rootfs_type }}"
+            --rootfs-size "${{ inputs.rootfs_size }}"
+            --mode "${{ inputs.mode }}"
+            --lan-ip "${{ inputs.lan_ip }}"
+            --gateway "${{ inputs.upstream_gateway }}"
+            --dns "${{ inputs.dns_servers }}"
+            --password "${{ inputs.root_password }}"
+            --jobs 3
+          )
+          args+=("${EXTRA[@]}")
+          chmod +x builder/*.sh
+          bash builder/build.sh "${args[@]}"
+
+      - name: ccache 统计
+        if: ${{ always() }}
+        run: ccache -s || true
+
+      - name: 上传固件到 Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: openwrt-${{ inputs.openwrt_version }}-${{ inputs.rootfs_type }}-${{ inputs.rootfs_size }}M-${{ inputs.mode }}
+          path: out/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        if: ${{ inputs.publish_release && success() }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: openwrt-${{ inputs.openwrt_version }}-${{ inputs.rootfs_type }}-${{ inputs.rootfs_size }}M-${{ github.run_number }}
+          name: OpenWrt ${{ inputs.openwrt_version }} x86_64 ${{ inputs.rootfs_type }} ${{ inputs.rootfs_size }}MiB
+          body_path: out/openwrt-${{ inputs.openwrt_version }}-build-summary.md
+          # 产物统一带 openwrt-<版本>- 前缀，多版本混放同一个 Release 也不会撞名
+          files: |
+            out/firmware/*
+            out/openwrt-${{ inputs.openwrt_version }}-build-summary.md
+            out/openwrt-${{ inputs.openwrt_version }}-sha256sums.txt
+            out/openwrt-${{ inputs.openwrt_version }}-config.buildinfo.raw
+            out/openwrt-${{ inputs.openwrt_version }}-diffconfig.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
