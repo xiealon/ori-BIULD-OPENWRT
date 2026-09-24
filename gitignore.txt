@@ -1,0 +1,21 @@
+# ---- 源码树与产物目录（几百 MB ~ 数 GB，绝不进仓库）----
+openwrt-*/
+out/
+out-*/
+
+# ---- 固件镜像（体积大，且 GitHub 单文件上限 100MB）----
+# 它们应该走 Actions Artifacts / Release，不要 git push
+*.img
+*.img.gz
+*.tar.gz
+*.bin
+*.vdi
+*.vmdk
+*.iso
+
+# ---- 杂项 ----
+__pycache__/
+*.pyc
+.DS_Store
+.config
+build.log
