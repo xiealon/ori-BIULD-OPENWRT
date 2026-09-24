@@ -1,1 +1,19 @@
-
+# LXC 容器运行时（官方 packages feed 提供，跟随分支最新版）
+lxc
+lxc-common
+lxc-configs
+lxc-hooks
+lxc-templates
+lxc-auto
+liblxc
+libcap
+libcap-bin
+libseccomp
+shadow-utils
+shadow-newuidmap
+shadow-newgidmap
+kmod-veth
+kmod-macvlan
+kmod-tun
+kmod-br-netfilter
+luci-app-lxc       # LuCI 里的 LXC 容器界面

@@ -1,0 +1,94 @@
+# 所有版本都打包的基础软件
+# 格式：一行一个包名，# 开头为注释；找不到包时只告警不中断构建
+
+# ---- LuCI 管理界面（含中文语言包）----
+luci
+luci-ssl
+luci-compat
+luci-app-firewall
+luci-i18n-base-zh-cn
+luci-i18n-firewall-zh-cn
+luci-i18n-package-manager-zh-cn
+luci-app-upnp
+luci-app-commands
+luci-app-ttyd
+luci-i18n-ttyd-zh-cn
+ttyd
+
+# ---- 常用命令 ----
+bash
+ca-certificates
+ca-bundle
+coreutils
+curl
+diffutils
+gzip
+jq
+logrotate
+nano-full
+htop
+procps-ng
+psmisc
+openssl-util
+# shadow 不在此处引入：它是个"元包"，会连带编译 login/su/chage/passwd 等全部
+# 35 个 applet，OpenWrt 官方也明确说 BusyBox 自带版本已经够用。
+# LXC 非特权容器真正需要的 newuidmap/newgidmap 见 lxc.pkgs。
+sudo
+tar
+unzip
+vnstat
+vnstati
+wget-ssl
+xz-utils
+ip-full
+ipset
+openssh-sftp-server
+
+# ---- 磁盘与文件系统 ----
+badblocks
+blkid
+block-mount
+cfdisk
+dosfstools
+e2fsprogs
+f2fs-tools
+fdisk
+kmod-fs-ext4
+kmod-fs-exfat
+kmod-fs-f2fs
+kmod-fs-ntfs3
+kmod-fs-vfat
+kmod-loop
+kmod-usb-storage
+kmod-usb-storage-uas
+losetup
+lsblk
+mkf2fs
+mount-utils
+ntfs-3g
+parted
+resize2fs
+smartmontools
+usbutils
+
+# ---- 网络工具 ----
+kmod-bonding
+ethtool-full
+iperf3
+irqbalance
+kmod-tun
+mtr-json
+netcat
+socat
+tcpdump
+
+# ---- 防火墙 / IPv6 ----
+ip6tables-nft
+kmod-ipt-nat
+kmod-nft-offload
+kmod-nf-nathelper
+kmod-nf-nathelper-extra
+
+# ---- 软路由/虚拟机友好 ----
+pciutils
+qemu-ga

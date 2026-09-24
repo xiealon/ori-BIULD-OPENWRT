@@ -1,0 +1,15 @@
+# Docker Engine 相关（官方 packages feed 提供，随版本更新）
+dockerd            # Docker CE 守护进程
+docker             # docker CLI
+docker-compose     # compose v2
+containerd
+runc
+kmod-veth
+kmod-br-netfilter
+kmod-ipt-nat
+kmod-nft-nat
+kmod-nf-nat
+kmod-ipt-conntrack
+kmod-nft-core
+iptables-nft
+luci-app-dockerman # LuCI 里的 Docker 容器管理界面

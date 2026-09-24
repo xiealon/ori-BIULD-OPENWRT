@@ -1,0 +1,4 @@
+# iStore 软件商店：来自 https://github.com/linkease/istore (main 分支)
+luci-app-store
+luci-lib-taskd
+taskd
